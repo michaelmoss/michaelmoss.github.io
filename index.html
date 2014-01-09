@@ -9,7 +9,7 @@
   <meta name="author" content="Michael Moss">
 
   
-  <meta name="description" content="Blog Archives Recent Posts GitHub Repos Status updating&#8230; @michaelmoss on GitHub $(document).ready(function(){ if (!window.jXHR){ var jxhr = &hellip;">
+  <meta name="description" content="Hello, there. Today I want to write about a new project I am working on, and why I picked Cassandra over MongoDB. This post assumes you have a basic &hellip;">
   
 
   <!-- http://t.co/dKP3o1e -->
@@ -76,6 +76,163 @@
       <div class="blog-index">
   
   
+  
+    <article>
+      
+  <header>
+    
+      <h1 class="entry-title"><a href="/blog/2011/07/10/user-history-data-cassandra-vs-mongodb/">User History Data: Cassandra vs. MongoDB</a></h1>
+    
+    
+      <p class="meta">
+        
+
+
+
+
+
+
+
+
+  
+
+
+<time datetime="2011-07-10T22:47:00-04:00" pubdate data-updated="true">Jul 10<span>th</span>, 2011</time>
+        
+      </p>
+    
+  </header>
+
+
+  <div class="entry-content"><p>Hello, there. Today I want to write about a new project I am working on, and why I picked Cassandra over MongoDB. This post assumes you have a basic understanding of each technology. I also want to preface this post by saying that while I really like Cassandra for this use case, we have been happily and successfully using MongoDB since I transitioned most of our user data storage over from Postgres (and Hibernate hell), but this is a topic for another post.</p>
+
+<p>This new project is about storing music &lsquo;listen&rsquo; history across our web app and mobile clients. That is, whenever one of our users listens to a song, we want to track who played the song, what song was played, the context of where the song was played from (a playlist, a radio station, an album), and when the song was played. In Java, the object might look like this:</p>
+
+<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+</pre></td><td class='code'><pre><code class='java'><span class='line'><span class="kd">public</span> <span class="kd">class</span> <span class="nc">ListenHistoryEvent</span>
+</span><span class='line'><span class="o">{</span>
+</span><span class='line'>  <span class="kt">int</span> <span class="n">userId</span><span class="o">;</span>
+</span><span class='line'>  <span class="kt">int</span> <span class="n">songId</span><span class="o">;</span>
+</span><span class='line'>  <span class="n">Enum</span> <span class="n">contextType</span><span class="o">;</span>
+</span><span class='line'>  <span class="n">String</span> <span class="n">contextId</span><span class="o">;</span>
+</span><span class='line'>  <span class="n">Date</span> <span class="n">datePlayed</span><span class="o">;</span>
+</span><span class='line'><span class="o">}</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Users need to be able to retrieve their own song history, and should be able to see the song history of their friends, but only 10-20 items at a time, in order. There will never be a case, where we need to pull multiple users&#8217; history from storage at once (range scans).</p>
+
+<p>Considering we are a music service, it should not be surprising that our #1 API call is for streaming music, so whatever storage engine we choose will have to sustain a constant, high write rate. As for the reads, I expect a much lower rate since I would assume that users won&rsquo;t be checking their listen history after each listen (or perhaps even after every 10th or 100th listen). With that, I&rsquo;m going into this project designing for a 1:10 read/write ratio.</p>
+
+<p>Let&rsquo;s see how Cassandra and MongoDB compare for implementing this project and requirements.</p>
+
+<h3>CAP and Overall Design</h3>
+
+
+<p>I think a great place to start is with the CAP theorem. Cassandra is classified as an AP system, where MongoDB is classified as a CP system. For this project, I need a system that is always available to sustain a high volume of writes, and I would rather gain overall performance even it if means potentially sacrificing consistency on reads. Let&rsquo;s face it, 99% of users will likely be checking their listen history every 10-100 songs, if they do at all, but in the unlikely event that they are glued to their listen history page, and refreshing it maniacally as they listen to music, I would be OK if sometimes they didn&rsquo;t see the latest data (think Facebook news feed) as long as the storage tier is able to scale all of those writes.Cassandra and MongoDB are both &lsquo;P&rsquo; systems because they scale by partitioning and distributing load across multiple physical servers. MongoDB is &lsquo;C&rsquo; leaning, because assuming you do shard a DB/collection, there is always a specific and designated master node for each _id (document) being written. If that master (shard) goes down, and there is no replica to replace it, you&rsquo;ve got nowhere to write that data.</p>
+
+<p>Cassandra is slightly different, and hence it&rsquo;s &lsquo;A&rsquo; leanings. While there are also designated nodes for each key (row) that is being written, none of these nodes need to actually be up for the cluster to accept writes for it. With hinted handoff, the cluster will always be available to accept writes.</p>
+
+<p>This is what I am looking for.</p>
+
+<h3>Persistence</h3>
+
+
+<p>Not only does Cassandra offer better write availability, it also shines at write performance, which is critical for such a write-heavy project. As of MongoDB version 1.8, it still has that global write lock which would impact performance not only on the collection being written to, but other collections as well across the cluster. Cassandra&rsquo;s BigTable inspired data model which writes in an append-only fashion really shines here with much (much) lower contention.</p>
+
+<h3>Storage Format and Memory Management</h3>
+
+
+<p>Let&rsquo;s transition a bit and talk about schema for a moment. If I were to structure this in MongoDB, I&rsquo;d have two obvious choices:</p>
+
+<ul>
+<li>Each listen event is a document
+
+<ul>
+<li>Pros
+
+<ul>
+<li>Simple to program to</li>
+</ul>
+</li>
+<li>Cons
+
+<ul>
+<li>Paginated reading of listen events would require a compound index with userId and datePlayed.</li>
+<li>That is a lot of overhead for data that is not often read.</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>Each user is a document and has embedded listen events
+
+<ul>
+<li>Pros
+
+<ul>
+<li>Organized &ndash; I prefer this structure as it keeps things together by user and leverages the benefits of the document format nicely.</li>
+<li>Simple $slice operator can be used to handle pagination</li>
+</ul>
+</li>
+<li>Cons
+
+<ul>
+<li>16MB doc limit could create an issue for users who listen to a lot of music. Assuming 100 bytes/embedded listen event, that&rsquo;s about 160K songs/user.</li>
+<li>Managing this array will create some code complexity until the 10Gen folks implement pushing to fixed sized arrays. I also wouldn&rsquo;t want to transfer 16MB of document over the wire to the app server to implement this logic.</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+
+<p>So, while it&rsquo;s definitely possible to implement this with Mongo in several ways each with their pros and cons, I think Cassandra&rsquo;s model is a better fit for this project. I&rsquo;ve chosen what some call the &lsquo;wide row&rsquo; model where each user is a row, and each song listen event is a column in a single Column Family with the column key as the listening time and the column value is the event payload. It would look as follows in JSON format:</p>
+
+<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+</pre></td><td class='code'><pre><code class='javascript'><span class='line'><span class="nx">SongHistory</span> <span class="o">=</span>
+</span><span class='line'><span class="p">{</span> <span class="c1">// ColumnFamily</span>
+</span><span class='line'><span class="nx">userId1</span><span class="o">:</span><span class="p">{</span> <span class="c1">// Row in the SongHistory CF, using RandomPartitioner</span>
+</span><span class='line'>    <span class="nx">TimeUUID1</span><span class="o">:</span> <span class="p">[</span><span class="nx">Song</span> <span class="nx">History</span> <span class="nx">Data</span><span class="p">],</span> <span class="c1">//Each column has TimeUUID as key, and are sorted by key</span>
+</span><span class='line'>    <span class="nx">TimeUUID2</span><span class="o">:</span> <span class="p">[</span><span class="nx">Song</span> <span class="nx">History</span> <span class="nx">Data</span><span class="p">]</span> <span class="c1">//Each column value is a song listen  },</span>
+</span><span class='line'><span class="nx">userId2</span><span class="o">:</span> <span class="p">{</span><span class="c1">// Another row</span>
+</span><span class='line'>    <span class="nx">TimeUUID1</span><span class="o">:</span> <span class="p">[</span><span class="nx">Song</span> <span class="nx">History</span> <span class="nx">Data</span><span class="p">]</span>  <span class="p">}</span>
+</span><span class='line'><span class="p">,}</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Rather than having MongoDB&rsquo;s 16MB document limit, Cassandra has a liberal 2GB column limit per row, which gives me quite a bit more headroom. Using Cassandra&rsquo;s Random Partitioner will also give me great dispersion on my writes across my users (using MD5 on the row key, which is the userId). The column keys will be sorted using the TimeUUIDType comparator, which will keep my columns in order. Getting this level of dispersion using MongoDB sharding would likely require a separate special field on the document for this.</p>
+
+<p>The big win here is that with this schema, Cassandra need not deserialize the entire column to read or write song events which will save a lot of server resources across millions of users.</p>
+
+<p>Another point to quickly mention on this topic is how MongoDB and Cassandra each handle caching, another area where I think Cassandra shines for this project.</p>
+
+<p>Because MongoDB uses mmap files, it will be caching all of our active listening users song history in memory. Since most of our users probably won&rsquo;t be reading this data often, if at all, it would likely be a wasted resource, and if there is more important data on the same MongoDB cluster, but which gets written to less often, it would get pushed out from all of these writes. This is speculation and would have to be measured. From what I&rsquo;ve read, Cassandra has a more granular caching structure which would cache individual rows and individual columns on an LRU basis. Given that users will first be reading their most recent writes, I think this is a good model for this project. As I load test this and do read simulations, I&rsquo;ll be very interested in learning more how to tune my caching strategy on Cassandra.</p>
+
+<h3>Conclusion</h3>
+
+
+<p>Well, I hope this post was helpful to you. As I get further along in the project, I&rsquo;ll post some updates. If you have any questions, I&rsquo;d love to hear from you.</p>
+</div>
+  
+  
+
+
+    </article>
+  
   <div class="pagination">
     
     <a href="/blog/archives">Blog Archives</a>
@@ -87,6 +244,10 @@
     <section>
   <h1>Recent Posts</h1>
   <ul id="recent_posts">
+    
+      <li class="post">
+        <a href="/blog/2011/07/10/user-history-data-cassandra-vs-mongodb/">User History Data: Cassandra vs. MongoDB</a>
+      </li>
     
   </ul>
 </section>

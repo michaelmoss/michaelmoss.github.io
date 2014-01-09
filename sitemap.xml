@@ -1,12 +1,18 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <urlset xmlns='http://www.sitemaps.org/schemas/sitemap/0.9'>
     <url>
+        <loc>
+            http://michaelmoss.github.io/blog/2011/07/10/user-history-data-cassandra-vs-mongodb/
+        </loc>
+        <lastmod>2014-01-09T12:47:33-05:00</lastmod>
+    </url>
+    <url>
         <loc>http://michaelmoss.github.io/blog/archives/</loc>
-        <lastmod>2014-01-09T12:25:46-05:00</lastmod>
+        <lastmod>2014-01-09T12:47:33-05:00</lastmod>
     </url>
     <url>
         <loc>http://michaelmoss.github.io/</loc>
-        <lastmod>2014-01-09T12:25:46-05:00</lastmod>
+        <lastmod>2014-01-09T12:47:33-05:00</lastmod>
     </url>
     <url>
         <loc>http://michaelmoss.github.io/robots.txt</loc>
