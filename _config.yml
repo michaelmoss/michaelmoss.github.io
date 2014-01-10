@@ -3,8 +3,8 @@
 # ----------------------- #
 
 url: http://michaelmoss.github.io
-title: Misc Writings of a Software Engineer
-subtitle:
+title: Michael Moss 
+subtitle: Software Engineer, Data and Science Geek
 author: Michael Moss
 simple_search: http://google.com/search
 description:
@@ -98,3 +98,6 @@ google_analytics_tracking_id: UA-38629380-1
 
 # Facebook Like
 facebook_like: false
+
+# LinkedIn - Added for octoflat
+linkedin_user: michaelrmoss
