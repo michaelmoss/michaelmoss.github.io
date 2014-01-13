@@ -101,3 +101,10 @@ facebook_like: false
 
 # LinkedIn - Added for octoflat
 linkedin_user: michaelrmoss
+
+# Navigation - Added for octoflat theme
+navigation:
+- text: Home
+  url: /index.html
+- text: Book Recommendations	
+  url: /books.html
