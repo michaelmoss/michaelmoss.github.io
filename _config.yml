@@ -106,5 +106,5 @@ linkedin_user: michaelrmoss
 navigation:
 - text: Home
   url: /index.html
-- text: Book Recommendations	
+- text: Books
   url: /books.html
