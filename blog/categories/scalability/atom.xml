@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
 
-  <title><![CDATA[Michael Moss]]></title>
-  <link href="http://michaelmoss.github.io/atom.xml" rel="self"/>
+  <title><![CDATA[Category: Scalability | Michael Moss]]></title>
+  <link href="http://michaelmoss.github.io/blog/categories/scalability/atom.xml" rel="self"/>
   <link href="http://michaelmoss.github.io/"/>
   <updated>2014-01-14T16:08:58-05:00</updated>
   <id>http://michaelmoss.github.io/</id>
@@ -22,26 +22,21 @@
 
 <p>This new project is about storing music &lsquo;listen&rsquo; history across our web app and mobile clients. That is, whenever one of our users listens to a song, we want to track who played the song, what song was played, the context of where the song was played from (a playlist, a radio station, an album), and when the song was played. In Java, the object might look like this:</p>
 
-<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-</pre></td><td class='code'><pre><code class='java'><span class='line'><span class="kd">public</span> <span class="kd">class</span> <span class="nc">ListenHistoryEvent</span>
-</span><span class='line'><span class="o">{</span>
-</span><span class='line'>  <span class="kt">int</span> <span class="n">userId</span><span class="o">;</span>
-</span><span class='line'>  <span class="kt">int</span> <span class="n">songId</span><span class="o">;</span>
-</span><span class='line'>  <span class="n">Enum</span> <span class="n">contextType</span><span class="o">;</span>
-</span><span class='line'>  <span class="n">String</span> <span class="n">contextId</span><span class="o">;</span>
-</span><span class='line'>  <span class="n">Date</span> <span class="n">datePlayed</span><span class="o">;</span>
-</span><span class='line'><span class="o">}</span>
-</span></code></pre></td></tr></table></div></figure>
+<p>``` java
+public class ListenHistoryEvent
+{</p>
 
+<pre><code>int userId;
+int songId;
+Enum contextType;
+String contextId;
+Date datePlayed;
+</code></pre>
 
-<p>Users need to be able to retrieve their own song history, and should be able to see the song history of their friends, but only 10-20 items at a time, in order. There will never be a case, where we need to pull multiple users&#8217; history from storage at once (range scans).</p>
+<p>}
+```</p>
+
+<p>Users need to be able to retrieve their own song history, and should be able to see the song history of their friends, but only 10-20 items at a time, in order. There will never be a case, where we need to pull multiple users' history from storage at once (range scans).</p>
 
 <p>Considering we are a music service, it should not be surprising that our #1 API call is for streaming music, so whatever storage engine we choose will have to sustain a constant, high write rate. As for the reads, I expect a much lower rate since I would assume that users won&rsquo;t be checking their listen history after each listen (or perhaps even after every 10th or 100th listen). With that, I&rsquo;m going into this project designing for a 1:10 read/write ratio.</p>
 
@@ -109,24 +104,22 @@
 
 <p>So, while it&rsquo;s definitely possible to implement this with Mongo in several ways each with their pros and cons, I think Cassandra&rsquo;s model is a better fit for this project. I&rsquo;ve chosen what some call the &lsquo;wide row&rsquo; model where each user is a row, and each song listen event is a column in a single Column Family with the column key as the listening time and the column value is the event payload. It would look as follows in JSON format:</p>
 
-<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-</pre></td><td class='code'><pre><code class='javascript'><span class='line'><span class="nx">SongHistory</span> <span class="o">=</span>
-</span><span class='line'><span class="p">{</span> <span class="c1">// ColumnFamily</span>
-</span><span class='line'><span class="nx">userId1</span><span class="o">:</span><span class="p">{</span> <span class="c1">// Row in the SongHistory CF, using RandomPartitioner</span>
-</span><span class='line'>    <span class="nx">TimeUUID1</span><span class="o">:</span> <span class="p">[</span><span class="nx">Song</span> <span class="nx">History</span> <span class="nx">Data</span><span class="p">],</span> <span class="c1">//Each column has TimeUUID as key, and are sorted by key</span>
-</span><span class='line'>    <span class="nx">TimeUUID2</span><span class="o">:</span> <span class="p">[</span><span class="nx">Song</span> <span class="nx">History</span> <span class="nx">Data</span><span class="p">]</span> <span class="c1">//Each column value is a song listen  },</span>
-</span><span class='line'><span class="nx">userId2</span><span class="o">:</span> <span class="p">{</span><span class="c1">// Another row</span>
-</span><span class='line'>    <span class="nx">TimeUUID1</span><span class="o">:</span> <span class="p">[</span><span class="nx">Song</span> <span class="nx">History</span> <span class="nx">Data</span><span class="p">]</span>  <span class="p">}</span>
-</span><span class='line'><span class="p">,}</span>
-</span></code></pre></td></tr></table></div></figure>
+<p>``` javascript
+SongHistory =
+{ // ColumnFamily
+userId1:{ // Row in the SongHistory CF, using RandomPartitioner</p>
 
+<pre><code>TimeUUID1: [Song History Data], //Each column has TimeUUID as key, and are sorted by key
+TimeUUID2: [Song History Data] //Each column value is a song listen  },
+</code></pre>
+
+<p>userId2: {// Another row</p>
+
+<pre><code>TimeUUID1: [Song History Data]  }
+</code></pre>
+
+<p>,}
+```</p>
 
 <p>Rather than having MongoDB&rsquo;s 16MB document limit, Cassandra has a liberal 2GB column limit per row, which gives me quite a bit more headroom. Using Cassandra&rsquo;s Random Partitioner will also give me great dispersion on my writes across my users (using MD5 on the row key, which is the userId). The column keys will be sorted using the TimeUUIDType comparator, which will keep my columns in order. Getting this level of dispersion using MongoDB sharding would likely require a separate special field on the document for this.</p>
 
