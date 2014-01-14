@@ -3,7 +3,7 @@ layout: post
 title: "User History Data: Cassandra vs. MongoDB"
 date: 2011-07-10 22:47
 comments: true
-categories: 
+categories: [Scalability, NoSQL]
 ---
 Hello, there. Today I want to write about a new project I am working on, and why I picked Cassandra over MongoDB. This post assumes you have a basic understanding of each technology. I also want to preface this post by saying that while I really like Cassandra for this use case, we have been happily and successfully using MongoDB since I transitioned most of our user data storage over from Postgres (and Hibernate hell), but this is a topic for another post.
 
